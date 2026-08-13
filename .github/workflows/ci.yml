@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  release:
+    types: [published]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -152,3 +154,35 @@ jobs:
 
           # And nothing internal leaks into public help.
           ! $D --help | grep -Eq 'lint|replay|ingest|harvest|ops|admin'
+
+
+  publish:
+    name: publish to crates.io
+    if: github.event_name == 'release'
+
+    needs: [test, lint, msrv, smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install stable
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+
+      - name: Release tag must match the crate version
+        run: |
+          crate=$(cargo metadata --format-version 1 --no-deps \
+                  | jq -r '.packages[] | select(.name == "diurn-mic") | .version')
+          tag=${GITHUB_REF_NAME#v}
+          if [ "$crate" != "$tag" ]; then
+            echo "::error::release $GITHUB_REF_NAME does not match Cargo.toml version $crate"
+            exit 1
+          fi
+          echo "publishing diurn-mic $crate"
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
+
