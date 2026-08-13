@@ -24,7 +24,7 @@ name = "diurn"
 path = "src/main.rs"
 
 [dependencies]
-diurn-mic = "0.1"
+diurn-mic = "0.1.0"
 
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive", "wrap_help"] }
