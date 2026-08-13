@@ -3,15 +3,11 @@
 The `diurn` command: ISO 10383 Market Identifier Codes and, later, market
 calendars. Publishes as the crate
 [`diurn-cli`](https://crates.io/crates/diurn-cli) and installs the binary
-`diurn` — the same asymmetry ripgrep has, since the name `diurn` on crates.io
-belongs to the client library people write in a `use` statement.
+
 
 ```sh
 cargo install diurn-cli
 ```
-
-**MIC commands need no API key and no account.** That promise is keepable
-because the source is a free public file.
 
 Nothing is bundled with the binary. Fetch the registry once and every later
 command finds it on its own:
@@ -22,13 +18,7 @@ fetching https://www.iso20022.org/sites/default/files/ISO10383_MIC/ISO10383_MIC.
 received 587384 bytes
 ISO 10383 vintage 2026-08-10 — 2875 records, ~/.local/share/diurn/ISO10383_MIC_2026-08-10.csv
 published 2026-08-10 (derived from the file's effective date)
-```
 
-A registry compiled into the binary would go stale with every release without
-saying so, and market data that looks current but is not is the failure this
-whole project exists to avoid. `fetch` is the one command that uses the network.
-
-```console
 $ diurn mic get XLON
 MIC               XLON
 Name              LONDON STOCK EXCHANGE
@@ -75,10 +65,7 @@ $ diurn mic vintages
 
 The location follows platform convention — `$XDG_DATA_HOME/diurn` or
 `~/.local/share/diurn`, `~/Library/Application Support/diurn` on macOS,
-`%APPDATA%\diurn` on Windows — and `DIURN_DATA_DIR` overrides it. A *data*
-directory rather than a cache: a pinned vintage is the evidence for what you
-served on a given day, and caches are something the operating system may
-delete.
+`%APPDATA%\diurn` on Windows — and `DIURN_DATA_DIR` overrides it.
 
 `--format json|ndjson|csv|table`, defaulting to `table` on a terminal and
 `ndjson` when piped. Provenance always goes to stderr, so stdout stays clean:
@@ -109,11 +96,9 @@ BTAM  BTAM  OPRT  NL  UPDATED*  RMKT      BROKERTEC EU REGULATED MARKET
 
 The `*` marks a record whose change is published but not yet effective. Note
 that `UPDATED` is not the only pending status — plenty of pending records are
-`ACTIVE`, so filtering on status alone misses them. Most tools show all of these
-as current; conflating the two is how you end up acting on a venue's future
-state.
+`ACTIVE`, so filtering on status alone misses them.
 
-## How the vintage date is worked out
+## How the vintage date is derived
 
 The file carries no publication date and the ISO download URL is unversioned,
 so the date is worked out rather than read: the latest effective date in the
@@ -142,7 +127,7 @@ registry, and the unusable rows are reported.
 MIC data is published by the ISO 10383 Registration Authority at
 <https://www.iso20022.org/market-identifier-codes>, which operates the registry
 free of charge. Parsing is done by
-[`diurn-mic`](https://github.com/diurn-io/diurn-mic-rs); this crate renders it.
+[`diurn-mic`](https://github.com/diurn-io/diurn-mic-rs).
 
 ## License
 
