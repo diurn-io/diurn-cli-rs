@@ -38,7 +38,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install stable
         run: |
@@ -72,7 +72,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install stable with rustfmt and clippy
         run: |
@@ -92,7 +92,7 @@ jobs:
     name: msrv (1.85)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install 1.85.0
         # Keep in step with rust-version in Cargo.toml. Higher than
         # diurn-mic's 1.82 on purpose: ureq-proto is edition 2024, so this
@@ -107,7 +107,7 @@ jobs:
     name: smoke test the built command
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install stable
         run: |
           rustup update stable --no-self-update
@@ -156,11 +156,8 @@ jobs:
           ! $D --help | grep -Eq 'lint|replay|ingest|harvest|ops|admin'
 
 
-  publish:
-    name: publish to crates.io
-    if: github.event_name == 'release'
-
-    needs: [test, lint, msrv, smoke]
+  package:
+    name: publish dry run
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -170,19 +167,61 @@ jobs:
           rustup update stable --no-self-update
           rustup default stable
 
-      - name: Release tag must match the crate version
+      # Possible only now that diurn-mic comes from crates.io: cargo refuses to
+      # package a crate carrying a version-less git dependency. Runs on every
+      # push so packaging breaks here rather than on release day.
+      - run: cargo package --locked
+
+      - name: Fixtures stay out of the package
         run: |
-          crate=$(cargo metadata --format-version 1 --no-deps \
-                  | jq -r '.packages[] | select(.name == "diurn-mic") | .version')
-          tag=${GITHUB_REF_NAME#v}
-          if [ "$crate" != "$tag" ]; then
-            echo "::error::release $GITHUB_REF_NAME does not match Cargo.toml version $crate"
+          if cargo package --locked --list | grep -q '^tests/'; then
+            echo '::error::test files leaked into the package; check the exclude list in Cargo.toml'
+            cargo package --locked --list
             exit 1
           fi
-          echo "publishing diurn-mic $crate"
+          echo "Package contents:"
+          cargo package --locked --list
+
+  publish:
+    name: publish to crates.io
+    if: github.event_name == 'release'
+    needs: [test, lint, msrv, smoke, package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install stable
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+
+      # A release tagged v0.2.0 that publishes 0.1.0 is painful to undo:
+      # crates.io versions can be yanked but never replaced or reused.
+      #
+      # The package name is read from the manifest rather than written here.
+      # Hardcoding it invites exactly one bug — copying this step between repos
+      # and leaving the previous crate's name behind, which selects nothing and
+      # compares against an empty string.
+      - name: Release tag must match the crate version
+        run: |
+          meta=$(cargo metadata --format-version 1 --no-deps)
+          count=$(echo "$meta" | jq '.packages | length')
+          if [ "$count" -ne 1 ]; then
+            echo "::error::expected a single package, found $count; update this check"
+            exit 1
+          fi
+          name=$(echo "$meta" | jq -r '.packages[0].name')
+          crate=$(echo "$meta" | jq -r '.packages[0].version')
+          tag=${GITHUB_REF_NAME#v}
+          if [ "$crate" != "$tag" ]; then
+            echo "::error::release $GITHUB_REF_NAME does not match $name version $crate"
+            exit 1
+          fi
+          echo "publishing $name $crate"
 
       - name: Publish
         env:
+          # Through the environment rather than --token: a command-line
+          # argument is visible in the runner's process list.
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish --locked
-

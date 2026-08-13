@@ -230,7 +230,8 @@ dependencies = [
 [[package]]
 name = "diurn-mic"
 version = "0.1.0"
-source = "git+https://github.com/diurn-io/diurn-mic-rs?rev=a2ccae8d05466f9e7e65ec34323d7b5eb2b2c37e#a2ccae8d05466f9e7e65ec34323d7b5eb2b2c37e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6368215bea0a77c7d0541f7ecef72c1f0be61fe660e4c25fa3e95768f450615b"
 dependencies = [
  "csv",
  "encoding_rs",

@@ -5,11 +5,11 @@ These are specific to this repository.
 
 ## Working against a local `diurn-mic`
 
-`Cargo.toml` pins `diurn-mic` to a git rev while its types settle. To build
-against a local checkout instead, create `.cargo/config.toml`:
+`diurn-mic` comes from crates.io. To build against a sibling checkout instead,
+create `.cargo/config.toml`:
 
 ```toml
-[patch."https://github.com/diurn-io/diurn-mic-rs"]
+[patch.crates-io]
 diurn-mic = { path = "../diurn-mic-rs" }
 ```
 
@@ -17,9 +17,14 @@ That file is gitignored deliberately. Committing it would break CI, where the
 sibling checkout does not exist and Cargo errors on a `[patch]` it cannot
 resolve.
 
-The source URL must match the dependency's exactly. Cargo silently ignores a
-`[patch]` whose source does not match — no error, no warning, it just builds the
-git rev as though the override were absent.
+Note the section name. While the dependency was a pinned git rev this had to be
+`[patch."https://github.com/diurn-io/diurn-mic-rs"]`, matching the source URL
+exactly — Cargo silently ignores a `[patch]` whose source does not match, with
+no error and no warning. Now that it resolves from the registry, the section is
+`[patch.crates-io]`.
+
+Anything relying on an unreleased `diurn-mic` change needs that change published
+first; there is no longer a rev to pin.
 
 ## The offline promise
 
