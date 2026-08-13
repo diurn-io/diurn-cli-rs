@@ -1,0 +1,9 @@
+# Golden fixtures must be byte-identical on every platform: the tests assert
+# exact counts against this vintage. Without this, a Windows checkout rewrites
+# LF to CRLF and it is no longer the file those counts were derived from.
+tests/fixtures/** -text
+
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.yml text eol=lf

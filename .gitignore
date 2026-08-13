@@ -19,3 +19,12 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# Local cross-repo development override. Not committed: the path would not
+# exist in a standalone CI checkout, and Cargo errors on a [patch] it cannot
+# resolve. See CONTRIBUTING.md.
+.cargo/config.toml
+
+# Registry files fetched into the working tree. The pinned fixture under
+# tests/fixtures/ is the only ISO data that belongs in this repo.
+/ISO10383_MIC_*.csv

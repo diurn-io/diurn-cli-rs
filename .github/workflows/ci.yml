@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# actions/checkout is the only action here, and it is GitHub's own. Toolchains
+# come from the rustup preinstalled on every runner.
+#
+# No build cache: this crate and its dependency tree build in well under a
+# minute, which is the same order as restoring and re-uploading one.
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustc --version && cargo --version
+
+      # Tests assert exact counts against this vintage. A mangled checkout
+      # should say so plainly rather than surface as a mismatched record total.
+      - name: Verify the pinned fixture is intact
+        run: |
+          expected=414fc527bcc99f4d9f5da099cd4ea8e5ee14bd791dda3ea135f1621ee6d256e0
+          file=tests/fixtures/ISO10383_MIC_2026-08-10.csv
+          if command -v sha256sum >/dev/null; then
+            actual=$(sha256sum "$file" | cut -d' ' -f1)
+          else
+            actual=$(shasum -a 256 "$file" | cut -d' ' -f1)
+          fi
+          if [ "$actual" != "$expected" ]; then
+            echo "::error file=$file::pinned fixture has changed (got $actual)"
+            echo "If intentional, update the hash here and the counts in tests/cli.rs."
+            exit 1
+          fi
+
+      # The integration tests run the real binary and never reach the network:
+      # `network_failure_is_three` points at a refused port on purpose, and
+      # `everything_except_fetch_works_offline` proves the rest ignore it.
+      - run: cargo test --locked --all-targets
+      - run: cargo test --locked --doc
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable with rustfmt and clippy
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add rustfmt clippy
+
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: rustdoc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --no-deps
+
+  msrv:
+    name: msrv (1.85)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install 1.85.0
+        # Keep in step with rust-version in Cargo.toml. Higher than
+        # diurn-mic's 1.82 on purpose: ureq-proto is edition 2024, so this
+        # crate cannot build on less. That is acceptable for a binary people
+        # install and would not be for a library people depend on.
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --no-self-update
+          rustc +1.85.0 --version
+      - run: cargo +1.85.0 check --locked --all-targets
+
+  smoke:
+    name: smoke test the built command
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      - run: cargo build --locked --release
+
+      # Exercise the command the way a user would, including the exit codes and
+      # the promise that stdout carries data and nothing else.
+      - name: Offline behaviour and exit codes
+        env:
+          # Any attempt to download during these commands fails loudly rather
+          # than silently succeeding against the real ISO endpoint.
+          DIURN_MIC_URL: http://127.0.0.1:1/must-not-be-used.csv
+          # Nothing is bundled with the binary, so point discovery at the
+          # pinned fixture rather than fetching.
+          DIURN_DATA_DIR: tests/fixtures
+        run: |
+          set -x
+          D=./target/release/diurn
+
+          # A registry is discovered without being named.
+          $D mic vintages --format json | jq -e '.[0].selected == true' >/dev/null
+
+          # Valid JSON on stdout, provenance on stderr.
+          $D mic get XNYS --segments --format json | jq -e 'length > 1' >/dev/null
+          $D mic list --country JP --status active --format json | jq -e 'length > 20' >/dev/null
+          $D mic list --pending --format json | jq -e 'length == 35' >/dev/null
+
+          # A piped default is NDJSON, one object per line.
+          $D mic list --country GB -q | head -1 | jq -e '.mic' >/dev/null
+
+          # Exit codes.
+          $D mic get XNYS -q >/dev/null;      test $? -eq 0
+          $D mic bogus     >/dev/null 2>&1;   test $? -eq 1
+          $D cal           >/dev/null 2>&1;   test $? -eq 1
+          $D mic fetch     >/dev/null 2>&1;   test $? -eq 3
+
+          # A fresh install with no registry explains itself rather than
+          # failing obscurely.
+          DIURN_DATA_DIR=$(mktemp -d) $D mic get XNYS 2>&1 >/dev/null | grep -q 'diurn mic fetch'
+
+          # The paid namespace advertises itself without pretending to work.
+          $D cal 2>&1 >/dev/null | grep -q DIURN_API_KEY
+
+          # And nothing internal leaks into public help.
+          ! $D --help | grep -Eq 'lint|replay|ingest|harvest|ops|admin'

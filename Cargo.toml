@@ -1,0 +1,52 @@
+[package]
+name = "diurn-cli"
+version = "0.1.0"
+edition = "2021"
+# ureq-proto, a normal dependency of ureq, is edition 2024 — so this crate
+# genuinely cannot build on anything older. Unlike diurn-mic, whose MSRV is a
+# promise to library consumers, this is a binary people install; a current
+# toolchain is a reasonable ask.
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+description = "Command-line tool for ISO 10383 Market Identifier Codes and Diurn market calendars"
+repository = "https://github.com/diurn-io/diurn-cli-rs"
+homepage = "https://diurn.io"
+readme = "README.md"
+keywords = ["mic", "iso10383", "exchange", "finance", "cli"]
+categories = ["command-line-utilities", "finance"]
+exclude = ["tests/**", ".github/**"]
+
+# The crate is `diurn-cli` but the command is `diurn`. Precedent: ripgrep ships
+# `rg`. The name `diurn` on crates.io belongs to the client library, which is
+# what people write in a `use` statement.
+[[bin]]
+name = "diurn"
+path = "src/main.rs"
+
+[dependencies]
+# Pinned to a rev while the types settle. A local checkout can be substituted
+# with a [patch] in .cargo/config.toml, which is gitignored — see CONTRIBUTING.
+#
+# NOTE: this blocks publishing. crates.io rejects a git dependency carrying no
+# version, so diurn-mic has to reach crates.io first and this line become a
+# version requirement. CI deliberately has no `package` job until then, since
+# it could only ever fail.
+diurn-mic = { git = "https://github.com/diurn-io/diurn-mic-rs", rev = "b9760fda5d12ce281fc7ebd38425a0bad677756d" }
+
+anyhow = "1.0"
+clap = { version = "4.6", features = ["derive", "wrap_help"] }
+csv = "1.4"
+jiff = { version = "0.2", default-features = false, features = ["std", "alloc", "serde", "tz-system"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Only `mic fetch` uses this. Everything else works with the network unplugged.
+ureq = "3.4"
+
+[dev-dependencies]
+tempfile = "3.27"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
