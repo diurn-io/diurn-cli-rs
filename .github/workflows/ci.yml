@@ -66,8 +66,11 @@ jobs:
       # The integration tests run the real binary and never reach the network:
       # `network_failure_is_three` points at a refused port on purpose, and
       # `everything_except_fetch_works_offline` proves the rest ignore it.
+      #
+      # No `cargo test --doc` here, unlike diurn-mic-rs: this crate has only a
+      # bin target, doctests run only for lib targets, and cargo treats being
+      # asked for them anyway as a hard error rather than a no-op.
       - run: cargo test --locked --all-targets
-      - run: cargo test --locked --doc
 
   lint:
     runs-on: ubuntu-latest
@@ -116,6 +119,11 @@ jobs:
 
       # Exercise the command the way a user would, including the exit codes and
       # the promise that stdout carries data and nothing else.
+      # GitHub runs these with `bash -e -o pipefail`, which makes the obvious
+      # spellings wrong in two ways: `cmd; test $? -eq 1` aborts at `cmd`
+      # before the test runs, and `cmd | grep` fails the pipeline when `cmd`
+      # exits nonzero even though grep matched. Both are exactly what we want
+      # to assert here, so the checks go through helpers that expect failure.
       - name: Offline behaviour and exit codes
         env:
           # Any attempt to download during these commands fails loudly rather
@@ -125,36 +133,69 @@ jobs:
           # pinned fixture rather than fetching.
           DIURN_DATA_DIR: tests/fixtures
         run: |
-          set -x
           D=./target/release/diurn
 
-          # A registry is discovered without being named.
-          $D mic vintages --format json | jq -e '.[0].selected == true' >/dev/null
+          fail() { echo "::error::$*"; exit 1; }
 
-          # Valid JSON on stdout, provenance on stderr.
-          $D mic get XNYS --segments --format json | jq -e 'length > 1' >/dev/null
-          $D mic list --country JP --status active --format json | jq -e 'length > 20' >/dev/null
-          $D mic list --pending --format json | jq -e 'length == 35' >/dev/null
+          # exit_is <want> <label> -- <cmd...>
+          exit_is() {
+            want=$1; label=$2; shift 3
+            got=0
+            "$@" >/dev/null 2>&1 || got=$?
+            [ "$got" -eq "$want" ] || fail "$label: exited $got, expected $want"
+            echo "ok   $label"
+          }
+
+          # stdout_jq <label> <filter> -- <cmd...>
+          stdout_jq() {
+            label=$1; filter=$2; shift 3
+            "$@" 2>/dev/null | jq -e "$filter" >/dev/null || fail "$label"
+            echo "ok   $label"
+          }
+
+          # stderr_has <label> <needle> -- <cmd...>
+          stderr_has() {
+            label=$1; needle=$2; shift 3
+            err=$("$@" 2>&1 >/dev/null) || true
+            case "$err" in
+              *"$needle"*) echo "ok   $label" ;;
+              *) fail "$label: stderr did not contain '$needle'" ;;
+            esac
+          }
+
+          # A registry is discovered without being named.
+          stdout_jq "vintages discovery" '.[0].selected == true' -- \
+            $D mic vintages --format json
+
+          # Valid JSON on stdout; provenance stays on stderr.
+          stdout_jq "get --segments" 'length > 1' -- \
+            $D mic get XNYS --segments --format json
+          stdout_jq "list JP active" 'length > 20' -- \
+            $D mic list --country JP --status active --format json
+          stdout_jq "list --pending" 'length == 35' -- \
+            $D mic list --pending --format json
 
           # A piped default is JSON Lines, one object per line.
           $D mic list --country GB -q | head -1 | jq -e '.mic' >/dev/null
+          echo "ok   jsonl default"
 
-          # Exit codes.
-          $D mic get XNYS -q >/dev/null;      test $? -eq 0
-          $D mic bogus     >/dev/null 2>&1;   test $? -eq 1
-          $D cal           >/dev/null 2>&1;   test $? -eq 1
-          $D mic fetch     >/dev/null 2>&1;   test $? -eq 3
-
-          # A fresh install with no registry explains itself rather than
-          # failing obscurely.
-          DIURN_DATA_DIR=$(mktemp -d) $D mic get XNYS 2>&1 >/dev/null | grep -q 'diurn mic fetch'
+          exit_is 0 "success"            -- $D mic get XNYS -q
+          exit_is 1 "usage error"        -- $D mic bogus
+          exit_is 1 "cal unimplemented"  -- $D cal
+          exit_is 3 "network failure"    -- $D mic fetch
 
           # The paid namespace advertises itself without pretending to work.
-          $D cal 2>&1 >/dev/null | grep -q DIURN_API_KEY
+          stderr_has "cal advertises key" "DIURN_API_KEY" -- $D cal
 
-          # And nothing internal leaks into public help.
-          ! $D --help | grep -Eq 'lint|replay|ingest|harvest|ops|admin'
+          # A fresh install with no registry explains itself.
+          DIURN_DATA_DIR=$(mktemp -d) \
+            stderr_has "fresh install message" "diurn mic fetch" -- $D mic get XNYS
 
+          # Nothing internal leaks into public help.
+          if $D --help | grep -Eq 'lint|replay|ingest|harvest|ops|admin'; then
+            fail "internal command names appear in public help"
+          fi
+          echo "ok   no internal commands in help"
 
   package:
     name: publish dry run
