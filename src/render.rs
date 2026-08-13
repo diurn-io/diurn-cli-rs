@@ -13,73 +13,98 @@ use serde::Serialize;
 use crate::cli::Format;
 use crate::output::Table;
 
-/// A record flattened for output.
+/// A record as the CLI emits it: exactly `MicRecord`'s own serialization, plus
+/// the one thing a record cannot know about itself.
 ///
-/// Hand-written rather than serialising `MicRecord` directly, because the wire
-/// shape of a CLI is a compatibility promise of its own: renaming a library
-/// field should not silently change what `--format json` emits.
+/// Deliberately a thin wrapper rather than a hand-listed copy of every field.
+/// `diurn-api` will serialize the same `MicRecord`, and two hand-maintained
+/// field lists would drift — a consumer would then see `GET /v1/venues/XNYS`
+/// and `diurn mic get XNYS --format json` disagree for no good reason. Adding a
+/// field to the library now flows through here automatically.
 #[derive(Serialize)]
 pub struct RecordView<'a> {
-    pub mic: &'a str,
-    pub operating_mic: &'a str,
-    pub kind: &'a str,
-    pub kind_name: &'a str,
-    pub market_name: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub legal_entity_name: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lei: Option<String>,
-    pub category: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub category_name: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub acronym: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub country: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub city: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub website: Option<&'a str>,
-    pub status: &'a str,
-    /// True when this record's change is published but not yet in force.
-    pub pending: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_updated: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_validated: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub comments: Option<&'a str>,
+    #[serde(flatten)]
+    record: &'a MicRecord,
+
+    /// Whether this record's change is published but not yet in force.
+    ///
+    /// Not on `MicRecord`: it is a comparison against the registry's
+    /// publication date, which a single record has no access to.
+    pending: bool,
 }
 
 impl<'a> RecordView<'a> {
-    pub fn new(r: &'a MicRecord, registry: &MicRegistry) -> Self {
+    pub fn new(record: &'a MicRecord, registry: &MicRegistry) -> Self {
         Self {
-            mic: r.mic.as_str(),
-            operating_mic: r.operating_mic.as_str(),
-            kind: r.kind.as_str(),
-            kind_name: r.kind.description(),
-            market_name: &r.market_name,
-            legal_entity_name: r.legal_entity_name.as_deref(),
-            lei: r.lei.map(|l| l.as_str().to_string()),
-            category: r.category.as_str(),
-            category_name: r.category.description(),
-            acronym: r.acronym.as_deref(),
-            country: r.country.map(|c| c.as_str().to_string()),
-            city: r.city.as_deref(),
-            website: r.website.as_deref(),
-            status: r.status.as_str(),
-            pending: registry.is_pending(r.mic),
-            created: r.created.map(|d| d.to_string()),
-            last_updated: r.last_updated.map(|d| d.to_string()),
-            last_validated: r.last_validated.map(|d| d.to_string()),
-            expires: r.expires.map(|d| d.to_string()),
-            comments: r.comments.as_deref(),
+            record,
+            pending: registry.is_pending(record.mic),
         }
     }
+}
+
+/// CSV columns, in order.
+///
+/// Written out rather than derived, for two reasons. `serde(flatten)`
+/// serializes as a map and the `csv` crate refuses those outright. And column
+/// order is part of a CSV's contract in a way it is not for JSON — a consumer
+/// indexing by position deserves it to be deliberate rather than an accident of
+/// struct layout.
+///
+/// Keep these in step with the JSON field names above.
+const CSV_COLUMNS: [&str; 18] = [
+    "mic",
+    "operating_mic",
+    "kind",
+    "market_name",
+    "legal_entity_name",
+    "lei",
+    "category",
+    "acronym",
+    "country",
+    "city",
+    "website",
+    "status",
+    "created",
+    "last_updated",
+    "last_validated",
+    "expires",
+    "comments",
+    "pending",
+];
+
+fn csv_row(v: &RecordView<'_>) -> Vec<String> {
+    let r = v.record;
+    let date = |d: Option<jiff::civil::Date>| d.map(|d| d.to_string()).unwrap_or_default();
+    vec![
+        r.mic.to_string(),
+        r.operating_mic.to_string(),
+        r.kind.to_string(),
+        r.market_name.to_string(),
+        r.legal_entity_name.as_deref().unwrap_or("").to_string(),
+        r.lei.map(|l| l.to_string()).unwrap_or_default(),
+        r.category.to_string(),
+        r.acronym.as_deref().unwrap_or("").to_string(),
+        r.country.map(|c| c.to_string()).unwrap_or_default(),
+        r.city.as_deref().unwrap_or("").to_string(),
+        r.website.as_deref().unwrap_or("").to_string(),
+        r.status.to_string(),
+        date(r.created),
+        date(r.last_updated),
+        date(r.last_validated),
+        date(r.expires),
+        r.comments.as_deref().unwrap_or("").to_string(),
+        v.pending.to_string(),
+    ]
+}
+
+fn write_csv_records(w: &mut impl Write, views: &[RecordView<'_>]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(w);
+    wtr.write_record(CSV_COLUMNS)?;
+    for v in views {
+        wtr.write_record(csv_row(v))?;
+    }
+    wtr.flush()?;
+    Ok(())
 }
 
 /// Trim a cell so one 102-character market name does not blow out the table.
@@ -98,7 +123,7 @@ fn write_json<T: Serialize>(w: &mut impl Write, value: &T) -> Result<()> {
     Ok(())
 }
 
-fn write_ndjson<T: Serialize>(w: &mut impl Write, values: &[T]) -> Result<()> {
+fn write_jsonl<T: Serialize>(w: &mut impl Write, values: &[T]) -> Result<()> {
     for v in values {
         serde_json::to_writer(&mut *w, v)?;
         writeln!(w)?;
@@ -120,30 +145,26 @@ pub fn records(
 
     match format {
         Format::Json => write_json(w, &views)?,
-        Format::Ndjson => write_ndjson(w, &views)?,
-        Format::Csv => {
-            let mut wtr = csv::Writer::from_writer(&mut *w);
-            for v in &views {
-                wtr.serialize(v)?;
-            }
-            wtr.flush()?;
-        }
+        Format::Jsonl => write_jsonl(w, &views)?,
+        Format::Csv => write_csv_records(w, &views)?,
         Format::Table => {
             let mut t = Table::new(&["MIC", "OPER", "TYPE", "CC", "STATUS", "CATEGORY", "NAME"]);
-            for v in &views {
+            for r in records {
                 t.push(vec![
-                    v.mic.to_string(),
-                    v.operating_mic.to_string(),
-                    v.kind.to_string(),
-                    v.country.clone().unwrap_or_else(|| "--".into()),
+                    r.mic.to_string(),
+                    r.operating_mic.to_string(),
+                    r.kind.to_string(),
+                    r.country
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "--".into()),
                     // A pending record is visibly distinct from a settled one.
-                    if v.pending {
-                        format!("{}*", v.status)
+                    if registry.is_pending(r.mic) {
+                        format!("{}*", r.status)
                     } else {
-                        v.status.to_string()
+                        r.status.to_string()
                     },
-                    v.category.to_string(),
-                    clip(v.market_name, 52),
+                    r.category.to_string(),
+                    clip(&r.market_name, 52),
                 ]);
             }
             if t.is_empty() {
@@ -167,51 +188,57 @@ pub fn record_detail(
     let v = RecordView::new(record, registry);
     match format {
         Format::Json => write_json(w, &v)?,
-        Format::Ndjson => write_ndjson(w, std::slice::from_ref(&v))?,
-        Format::Csv => {
-            let mut wtr = csv::Writer::from_writer(&mut *w);
-            wtr.serialize(&v)?;
-            wtr.flush()?;
-        }
+        Format::Jsonl => write_jsonl(w, std::slice::from_ref(&v))?,
+        Format::Csv => write_csv_records(w, std::slice::from_ref(&v))?,
         Format::Table => {
+            let r = record;
             let mut field = |k: &str, val: &str| -> Result<()> {
                 if !val.is_empty() {
                     writeln!(w, "{k:<18}{val}")?;
                 }
                 Ok(())
             };
-            field("MIC", v.mic)?;
-            field("Name", v.market_name)?;
-            field("Operating MIC", v.operating_mic)?;
-            field("Type", &format!("{} ({})", v.kind, v.kind_name))?;
+            let date = |d: Option<jiff::civil::Date>| d.map(|d| d.to_string()).unwrap_or_default();
+
+            field("MIC", r.mic.as_str())?;
+            field("Name", &r.market_name)?;
+            field("Operating MIC", r.operating_mic.as_str())?;
+            // A human reading a table wants the expansion; the machine formats
+            // carry only the code, which is what the library and the API speak.
+            field("Type", &format!("{} ({})", r.kind, r.kind.description()))?;
             field(
                 "Category",
-                &match v.category_name {
-                    Some(n) => format!("{} ({})", v.category, n),
-                    None => format!("{} (unrecognised)", v.category),
+                &match r.category.description() {
+                    Some(n) => format!("{} ({n})", r.category),
+                    None => format!("{} (unrecognised)", r.category),
                 },
             )?;
-            field("Status", v.status)?;
-            if v.pending {
+            field("Status", r.status.as_str())?;
+            if registry.is_pending(r.mic) {
                 field(
                     "Pending",
                     &format!(
                         "yes — takes effect {}",
-                        v.last_updated.as_deref().unwrap_or("?")
+                        r.last_updated
+                            .map(|d| d.to_string())
+                            .unwrap_or_else(|| "?".into())
                     ),
                 )?;
             }
-            field("Country", v.country.as_deref().unwrap_or(""))?;
-            field("City", v.city.unwrap_or(""))?;
-            field("Legal entity", v.legal_entity_name.unwrap_or(""))?;
-            field("LEI", v.lei.as_deref().unwrap_or(""))?;
-            field("Acronym", v.acronym.unwrap_or(""))?;
-            field("Website", v.website.unwrap_or(""))?;
-            field("Created", v.created.as_deref().unwrap_or(""))?;
-            field("Last updated", v.last_updated.as_deref().unwrap_or(""))?;
-            field("Last validated", v.last_validated.as_deref().unwrap_or(""))?;
-            field("Expires", v.expires.as_deref().unwrap_or(""))?;
-            field("Comments", v.comments.unwrap_or(""))?;
+            field(
+                "Country",
+                &r.country.map(|c| c.to_string()).unwrap_or_default(),
+            )?;
+            field("City", r.city.as_deref().unwrap_or(""))?;
+            field("Legal entity", r.legal_entity_name.as_deref().unwrap_or(""))?;
+            field("LEI", &r.lei.map(|l| l.to_string()).unwrap_or_default())?;
+            field("Acronym", r.acronym.as_deref().unwrap_or(""))?;
+            field("Website", r.website.as_deref().unwrap_or(""))?;
+            field("Created", &date(r.created))?;
+            field("Last updated", &date(r.last_updated))?;
+            field("Last validated", &date(r.last_validated))?;
+            field("Expires", &date(r.expires))?;
+            field("Comments", r.comments.as_deref().unwrap_or(""))?;
         }
     }
     Ok(())
@@ -263,7 +290,7 @@ pub fn issues(w: &mut impl Write, format: Format, issues: &[Issue]) -> Result<()
     let views = issue_views(issues);
     match format {
         Format::Json => write_json(w, &views)?,
-        Format::Ndjson => write_ndjson(w, &views)?,
+        Format::Jsonl => write_jsonl(w, &views)?,
         Format::Csv => {
             let mut wtr = csv::Writer::from_writer(&mut *w);
             for v in &views {
@@ -348,7 +375,7 @@ pub fn summary(
 
     match format {
         Format::Json => write_json(w, &view)?,
-        Format::Ndjson => write_ndjson(w, std::slice::from_ref(&view))?,
+        Format::Jsonl => write_jsonl(w, std::slice::from_ref(&view))?,
         Format::Csv => {
             let mut wtr = csv::Writer::from_writer(&mut *w);
             for k in &view.by_kind {
@@ -426,7 +453,7 @@ pub fn diff(w: &mut impl Write, format: Format, d: &MicDiff) -> Result<()> {
 
     match format {
         Format::Json => write_json(w, &view)?,
-        Format::Ndjson => {
+        Format::Jsonl => {
             // One line per affected MIC, so a diff streams like everything else.
             #[derive(Serialize)]
             struct Row<'a> {
@@ -457,7 +484,7 @@ pub fn diff(w: &mut impl Write, format: Format, d: &MicDiff) -> Result<()> {
                     fields: Some(&c.changes),
                 });
             }
-            write_ndjson(w, &rows)?;
+            write_jsonl(w, &rows)?;
         }
         Format::Csv => {
             let mut wtr = csv::Writer::from_writer(&mut *w);

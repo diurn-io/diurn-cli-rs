@@ -10,7 +10,7 @@ use crate::cli::Format;
 impl Format {
     /// Pick a format when the user did not name one.
     ///
-    /// A terminal gets aligned columns; anything else gets NDJSON, because the
+    /// A terminal gets aligned columns; anything else gets JSON Lines, because the
     /// overwhelmingly likely reason stdout is not a terminal is that something
     /// else is about to read it.
     pub fn resolve(requested: Option<Format>) -> Format {
@@ -18,7 +18,7 @@ impl Format {
             if io::stdout().is_terminal() {
                 Format::Table
             } else {
-                Format::Ndjson
+                Format::Jsonl
             }
         })
     }

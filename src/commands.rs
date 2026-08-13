@@ -86,20 +86,23 @@ pub fn run(cmd: MicCommand, ctx: &Ctx) -> Result<i32> {
 /// What is on disk, and which one an unqualified command would pick.
 fn vintages(w: &mut impl Write, ctx: &Ctx) -> Result<i32> {
     let dir = source::data_dir()?;
+    if let Some(note) = &dir.note {
+        note!(ctx.quiet, "note: {note}");
+    }
     let found = source::available();
 
     if found.is_empty() {
         note!(
             ctx.quiet,
             "no registry files in {}\nRun `diurn mic fetch` to download one.",
-            dir.display()
+            dir.path.display()
         );
         // Not an error: an empty data directory is a normal state, and a script
         // asking "what do I have?" deserves an answer rather than a failure.
         return Ok(EXIT_OK);
     }
 
-    note!(ctx.quiet, "{}", dir.display());
+    note!(ctx.quiet, "{}", dir.path.display());
 
     #[derive(serde::Serialize)]
     struct VintageView {
@@ -154,7 +157,7 @@ fn vintages(w: &mut impl Write, ctx: &Ctx) -> Result<i32> {
             serde_json::to_writer_pretty(&mut *w, &views)?;
             writeln!(w)?;
         }
-        Format::Ndjson => {
+        Format::Jsonl => {
             for v in &views {
                 serde_json::to_writer(&mut *w, v)?;
                 writeln!(w)?;

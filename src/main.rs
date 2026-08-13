@@ -1,8 +1,9 @@
 //! The `diurn` command.
 //!
-//! MIC subcommands work entirely offline against a built-in snapshot or a file
-//! you point them at. `mic fetch` is the sole exception and the only place a
-//! network dependency is linked in at all.
+//! MIC subcommands work entirely offline against a registry file: the newest in
+//! the data directory, or one named with `--path`. Nothing is bundled with the
+//! binary. `mic fetch` is the sole exception and the only place a network
+//! dependency is linked in at all.
 
 mod cli;
 mod commands;

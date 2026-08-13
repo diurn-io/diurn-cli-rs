@@ -19,7 +19,7 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
 
-    /// Output format. Defaults to `table` on a terminal, `ndjson` when piped.
+    /// Output format. Defaults to `table` on a terminal, `jsonl` when piped.
     #[arg(long, short, global = true, value_enum)]
     pub format: Option<Format>,
 
@@ -31,7 +31,15 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// ISO 10383 Market Identifier Codes. Offline, no API key.
-    #[command(subcommand)]
+    #[command(
+        subcommand,
+        long_about = "ISO 10383 Market Identifier Codes. No API key, and no \
+            network except for `fetch`.\n\n\
+            Nothing is bundled with this command. Run `diurn mic fetch` once; \
+            after that every command uses the newest registry in your data \
+            directory. Point at a specific file with --path, and see what you \
+            have with `diurn mic vintages`."
+    )]
     Mic(MicCommand),
 
     /// Market calendars and trading hours. Requires an API key.
@@ -143,10 +151,18 @@ pub enum MicCommand {
 }
 
 /// Which registry file a read-only command should use.
+///
+/// Flattened into each command, so it contributes the flags `--path` and
+/// `--published` directly — the field name it is bound to is invisible on the
+/// command line.
 #[derive(Debug, Args)]
 pub struct SourceArgs {
-    /// Read this file instead of the built-in snapshot.
-    #[arg(long, short = 'p', global = false)]
+    /// Registry file to read.
+    ///
+    /// Defaults to the newest one in the data directory — see
+    /// `diurn mic vintages`. Nothing is bundled with this command, so there is
+    /// always a real file behind every answer.
+    #[arg(long, short = 'p', value_name = "FILE")]
     pub path: Option<PathBuf>,
 
     /// Publication date of `--path`, if it cannot be read from the filename.
@@ -178,7 +194,7 @@ pub enum Format {
     /// One JSON document.
     Json,
     /// One JSON object per line, for streaming into other tools.
-    Ndjson,
+    Jsonl,
     /// Comma-separated, with a header row.
     Csv,
 }

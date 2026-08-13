@@ -134,7 +134,7 @@ jobs:
           $D mic list --country JP --status active --format json | jq -e 'length > 20' >/dev/null
           $D mic list --pending --format json | jq -e 'length == 35' >/dev/null
 
-          # A piped default is NDJSON, one object per line.
+          # A piped default is JSON Lines, one object per line.
           $D mic list --country GB -q | head -1 | jq -e '.mic' >/dev/null
 
           # Exit codes.

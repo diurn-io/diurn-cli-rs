@@ -67,8 +67,20 @@ The location follows platform convention — `$XDG_DATA_HOME/diurn` or
 `~/.local/share/diurn`, `~/Library/Application Support/diurn` on macOS,
 `%APPDATA%\diurn` on Windows — and `DIURN_DATA_DIR` overrides it.
 
-`--format json|ndjson|csv|table`, defaulting to `table` on a terminal and
-`ndjson` when piped. Provenance always goes to stderr, so stdout stays clean:
+To read a particular file rather than the newest, use `--path` (or `-p`):
+
+```console
+$ diurn mic get XNYS --path ~/.local/share/diurn/ISO10383_MIC_2026-07-13.csv
+```
+
+`--format json|jsonl|csv|table`, defaulting to `table` on a terminal and
+`jsonl` when piped — one JSON object per line, with the conventional extension:
+
+```console
+$ diurn mic list --country US --format jsonl > us-venues.jsonl
+```
+
+Provenance always goes to stderr, so stdout stays clean:
 
 ```console
 $ diurn mic get XNYS --segments --format json | jq -r '.[].mic'

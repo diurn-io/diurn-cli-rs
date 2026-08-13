@@ -70,10 +70,6 @@ fn get_with_segments_emits_valid_json() {
     assert!(arr.len() > 1, "XNYS has segments");
     assert_eq!(arr[0]["mic"], "XNYS");
     assert_eq!(arr[0]["kind"], "OPRT");
-    // ISO's readable names ride along, so a consumer never has to hold a copy
-    // of the code list.
-    assert_eq!(arr[0]["kind_name"], "Operating");
-    assert_eq!(arr[0]["category_name"], "Not Specified");
     assert!(arr[1..].iter().all(|r| r["kind"] == "SGMT"));
 }
 
@@ -95,7 +91,7 @@ fn quiet_silences_the_banner() {
 
 /// Not a terminal, so the default is the streaming format.
 #[test]
-fn default_format_when_piped_is_ndjson() {
+fn default_format_when_piped_is_jsonl() {
     let o = run(&["mic", "list", "--country", "JP", "--quiet"]);
     let out = stdout(&o);
     let lines: Vec<_> = out.lines().collect();
@@ -112,6 +108,71 @@ fn csv_output_has_a_header() {
     let mut lines = out.lines();
     assert!(lines.next().unwrap().starts_with("mic,operating_mic,kind"));
     assert!(lines.next().unwrap().starts_with("XNYS,XNYS,OPRT"));
+}
+
+/// JSON keys and CSV columns describe the same record and must not drift.
+///
+/// CSV cannot be derived from the same struct — `serde(flatten)` produces a map
+/// and the csv crate rejects those — so the column list is written by hand.
+/// This is what keeps the two in step.
+#[test]
+fn csv_columns_match_the_json_keys() {
+    let json = stdout(&run(&["mic", "get", "XNYS", "-q", "--format", "json"]));
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let mut json_keys: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+
+    let csv = stdout(&run(&["mic", "get", "XNYS", "-q", "--format", "csv"]));
+    let mut csv_cols: Vec<String> = csv
+        .lines()
+        .next()
+        .unwrap()
+        .split(',')
+        .map(|c| c.to_string())
+        .collect();
+
+    json_keys.sort();
+    csv_cols.sort();
+    assert_eq!(json_keys, csv_cols);
+}
+
+/// The CLI emits the library's own record shape, so that JSON from
+/// `diurn mic get` and from the future `GET /v1/venues/{mic}` agree. The only
+/// addition is `pending`, which a record cannot determine about itself.
+#[test]
+fn json_is_the_library_record_plus_pending() {
+    let json = stdout(&run(&["mic", "get", "XNYS", "-q", "--format", "json"]));
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let obj = v.as_object().unwrap();
+
+    // Every field of MicRecord, spelled as the library spells it.
+    for field in [
+        "mic",
+        "operating_mic",
+        "kind",
+        "market_name",
+        "legal_entity_name",
+        "lei",
+        "category",
+        "acronym",
+        "country",
+        "city",
+        "website",
+        "status",
+        "created",
+        "last_updated",
+        "last_validated",
+        "expires",
+        "comments",
+    ] {
+        assert!(obj.contains_key(field), "missing library field {field}");
+    }
+    assert!(obj.contains_key("pending"), "the one CLI addition");
+    assert_eq!(obj.len(), 18, "no other CLI-invented fields: {obj:?}");
+
+    // Codes are the registry's spellings, not Rust variant names.
+    assert_eq!(obj["kind"], "OPRT");
+    assert_eq!(obj["status"], "ACTIVE");
+    assert_eq!(obj["category"], "NSPD");
 }
 
 #[test]
@@ -540,6 +601,49 @@ fn the_newest_vintage_is_selected_automatically() {
         stderr(&o)
     );
     assert!(stderr(&o).contains("vintage 2026-08-10"));
+}
+
+/// One name for the thing, plus its conventional short form. No aliases: a
+/// second spelling is a second thing to document, keep working, and explain.
+#[test]
+fn path_has_exactly_one_long_spelling() {
+    let snap = snapshot();
+    let snap = snap.to_str().unwrap();
+
+    let baseline = stdout(&run(&["mic", "get", "XNYS", "-q", "--path", snap]));
+    assert!(baseline.contains("XNYS"));
+    assert_eq!(
+        stdout(&run(&["mic", "get", "XNYS", "-q", "-p", snap])),
+        baseline,
+        "-p is the short form of --path"
+    );
+
+    for guess in ["--source", "--file", "--registry", "--csv"] {
+        let o = run(&["mic", "get", "XNYS", "-q", guess, snap]);
+        assert_eq!(code(&o), 1, "{guess} must be a usage error, not an alias");
+    }
+
+    let help = stdout(&run(&["mic", "get", "--help"]));
+    assert!(help.contains("--path"));
+}
+
+/// The help must not promise a bundled registry: there is not one.
+#[test]
+fn help_does_not_claim_a_built_in_snapshot() {
+    for args in [
+        vec!["mic", "get", "--help"],
+        vec!["mic", "list", "--help"],
+        vec!["mic", "--help"],
+    ] {
+        let help = stdout(&run(&args));
+        for stale in ["built-in snapshot", "embedded snapshot"] {
+            assert!(
+                !help.contains(stale),
+                "`{stale}` in `diurn {}`:\n{help}",
+                args.join(" ")
+            );
+        }
+    }
 }
 
 /// An explicit `--path` always beats discovery.

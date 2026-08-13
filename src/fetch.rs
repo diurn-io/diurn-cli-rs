@@ -77,9 +77,12 @@ pub fn run(
         Some(p) => p.to_path_buf(),
         None => {
             let dir = source::data_dir()?;
-            std::fs::create_dir_all(&dir)
-                .with_context(|| format!("could not create {}", dir.display()))?;
-            dir.join(filename(date))
+            if let Some(note) = &dir.note {
+                note!(ctx.quiet, "note: {note}");
+            }
+            std::fs::create_dir_all(&dir.path)
+                .with_context(|| format!("could not create {}", dir.path.display()))?;
+            dir.path.join(filename(date))
         }
     };
     std::fs::write(&path, &bytes).with_context(|| format!("could not write {}", path.display()))?;

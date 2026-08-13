@@ -30,6 +30,26 @@ pub fn fetch_url() -> String {
     std::env::var(URL_ENV).unwrap_or_else(|_| ISO_URL.to_string())
 }
 
+/// Where fetched registries live, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataDir {
+    pub path: PathBuf,
+    /// Set when an environment variable was deliberately not honoured, so the
+    /// choice can be explained rather than looking arbitrary.
+    pub note: Option<String>,
+}
+
+/// Whether a path lies inside a snap's private per-revision tree.
+///
+/// Snap user data lives at `~/snap/<app>/<revision>/`, and several snaps — VS
+/// Code among them — export `XDG_DATA_HOME` pointing there and leak it into any
+/// terminal they spawn. The revision number is the problem: it changes when
+/// *that* application updates, so anything stored under it silently disappears
+/// on an unrelated upgrade.
+fn is_snap_private(p: &Path) -> bool {
+    p.components().any(|c| c.as_os_str() == "snap")
+}
+
 /// Where fetched registries live.
 ///
 /// A *data* directory rather than a cache directory, deliberately: a pinned
@@ -37,32 +57,52 @@ pub fn fetch_url() -> String {
 /// something the operating system is entitled to delete.
 ///
 /// Follows each platform's convention, and `DIURN_DATA_DIR` overrides all of it.
-pub fn data_dir() -> Result<PathBuf> {
+pub fn data_dir() -> Result<DataDir> {
+    let plain = |path: PathBuf| DataDir { path, note: None };
+
     if let Ok(dir) = std::env::var(DATA_DIR_ENV) {
         if !dir.is_empty() {
-            return Ok(PathBuf::from(dir));
+            return Ok(plain(PathBuf::from(dir)));
         }
     }
 
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    // Under real snap confinement, HOME is redirected into the snap's own tree
+    // and SNAP_REAL_HOME holds the actual one.
+    let home = std::env::var_os("SNAP_REAL_HOME")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from);
 
     if cfg!(target_os = "windows") {
         if let Some(appdata) = std::env::var_os("APPDATA") {
-            return Ok(PathBuf::from(appdata).join("diurn"));
+            return Ok(plain(PathBuf::from(appdata).join("diurn")));
         }
     } else if cfg!(target_os = "macos") {
         if let Some(h) = home {
-            return Ok(h.join("Library/Application Support/diurn"));
+            return Ok(plain(h.join("Library/Application Support/diurn")));
         }
     } else {
+        let mut note = None;
         if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
             let xdg = PathBuf::from(xdg);
             if xdg.is_absolute() {
-                return Ok(xdg.join("diurn"));
+                if !is_snap_private(&xdg) {
+                    return Ok(plain(xdg.join("diurn")));
+                }
+                // Honouring this would put the registry under a path containing
+                // a snap revision, and lose it on that app's next update.
+                note = Some(format!(
+                    "ignoring XDG_DATA_HOME={} — it points inside a snap's \
+                     per-revision directory, which would not survive that \
+                     application updating. Set {DATA_DIR_ENV} to override.",
+                    xdg.display()
+                ));
             }
         }
         if let Some(h) = home {
-            return Ok(h.join(".local/share/diurn"));
+            return Ok(DataDir {
+                path: h.join(".local/share/diurn"),
+                note,
+            });
         }
     }
 
@@ -114,7 +154,7 @@ pub fn available() -> Vec<Vintage> {
     let Ok(dir) = data_dir() else {
         return Vec::new();
     };
-    let Ok(entries) = std::fs::read_dir(&dir) else {
+    let Ok(entries) = std::fs::read_dir(&dir.path) else {
         return Vec::new();
     };
 
@@ -174,7 +214,7 @@ pub fn load(path: Option<&Path>, published: Option<Date>) -> Result<(LoadOutcome
 /// user will read, so it says exactly what to do next.
 fn no_registry_available() -> anyhow::Error {
     let where_ = data_dir()
-        .map(|d| d.display().to_string())
+        .map(|d| d.path.display().to_string())
         .unwrap_or_else(|_| "the data directory".to_string());
     anyhow!(
         "no MIC registry found in {where_}\n\n\
@@ -258,19 +298,102 @@ mod tests {
 
     #[test]
     fn data_dir_honours_the_override() {
-        temp_env(DATA_DIR_ENV, Some("/tmp/diurn-test-dir"), || {
-            assert_eq!(data_dir().unwrap(), PathBuf::from("/tmp/diurn-test-dir"));
+        temp_env(&[(DATA_DIR_ENV, Some("/tmp/diurn-test-dir"))], || {
+            let d = data_dir().unwrap();
+            assert_eq!(d.path, PathBuf::from("/tmp/diurn-test-dir"));
+            assert!(d.note.is_none());
         });
     }
 
     /// An empty override must not silently become the current directory.
     #[test]
     fn empty_override_falls_through_to_the_platform_default() {
-        temp_env(DATA_DIR_ENV, Some(""), || {
+        temp_env(&[(DATA_DIR_ENV, Some(""))], || {
             let d = data_dir().unwrap();
-            assert_ne!(d, PathBuf::from(""));
-            assert!(d.ends_with("diurn"), "{d:?}");
+            assert_ne!(d.path, PathBuf::from(""));
+            assert!(d.path.ends_with("diurn"), "{d:?}");
         });
+    }
+
+    #[test]
+    fn snap_private_paths_are_recognised() {
+        assert!(is_snap_private(Path::new(
+            "/home/ariza/snap/code/253/.local/share"
+        )));
+        assert!(is_snap_private(Path::new("/var/snap/foo/current")));
+        assert!(!is_snap_private(Path::new("/home/ariza/.local/share")));
+        // "snapshot" is not "snap".
+        assert!(!is_snap_private(Path::new("/home/ariza/snapshots/data")));
+    }
+
+    /// A legitimate XDG_DATA_HOME is honoured.
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[test]
+    fn xdg_data_home_is_used_when_it_is_the_user_s_own() {
+        temp_env(
+            &[
+                (DATA_DIR_ENV, None),
+                ("XDG_DATA_HOME", Some("/home/someone/.local/share")),
+            ],
+            || {
+                let d = data_dir().unwrap();
+                assert_eq!(d.path, PathBuf::from("/home/someone/.local/share/diurn"));
+                assert!(d.note.is_none());
+            },
+        );
+    }
+
+    /// The VS Code snap exports XDG_DATA_HOME into its integrated terminal,
+    /// pointing at `~/snap/code/<revision>/`. Storing registries there loses
+    /// them the next time VS Code updates, so it is deliberately not honoured —
+    /// and the CLI says so rather than appearing to ignore the environment at
+    /// random.
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[test]
+    fn a_snap_hijacked_xdg_data_home_is_declined_with_an_explanation() {
+        temp_env(
+            &[
+                (DATA_DIR_ENV, None),
+                (
+                    "XDG_DATA_HOME",
+                    Some("/home/ariza/snap/code/253/.local/share"),
+                ),
+            ],
+            || {
+                let d = data_dir().unwrap();
+                assert!(
+                    !is_snap_private(&d.path),
+                    "must not land inside the snap tree: {d:?}"
+                );
+                assert!(d.path.ends_with(".local/share/diurn"), "{d:?}");
+
+                let note = d.note.expect("the override must be explained");
+                assert!(note.contains("XDG_DATA_HOME"));
+                assert!(note.contains("snap"));
+                assert!(note.contains(DATA_DIR_ENV), "must offer a way out");
+            },
+        );
+    }
+
+    /// An explicit override wins even over the snap heuristic — if someone
+    /// really wants that directory, they can have it.
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[test]
+    fn explicit_override_beats_the_snap_heuristic() {
+        temp_env(
+            &[
+                (DATA_DIR_ENV, Some("/home/ariza/snap/code/253/diurn")),
+                (
+                    "XDG_DATA_HOME",
+                    Some("/home/ariza/snap/code/253/.local/share"),
+                ),
+            ],
+            || {
+                let d = data_dir().unwrap();
+                assert_eq!(d.path, PathBuf::from("/home/ariza/snap/code/253/diurn"));
+                assert!(d.note.is_none());
+            },
+        );
     }
 
     /// Dated files outrank undated ones; later dates win.
@@ -287,21 +410,24 @@ mod tests {
             std::fs::write(dir.path().join(name), "x").unwrap();
         }
 
-        temp_env(DATA_DIR_ENV, Some(dir.path().to_str().unwrap()), || {
-            let found = available();
-            // The .txt is ignored; the four CSVs remain.
-            assert_eq!(found.len(), 4);
-            assert_eq!(found[0].published, Some(date(2026, 8, 10)));
-            assert_eq!(found[1].published, Some(date(2026, 7, 13)));
-            assert_eq!(found[2].published, Some(date(2026, 6, 8)));
-            // Undated sorts last, however recently it was written.
-            assert_eq!(found[3].published, None);
-        });
+        temp_env(
+            &[(DATA_DIR_ENV, Some(dir.path().to_str().unwrap()))],
+            || {
+                let found = available();
+                // The .txt is ignored; the four CSVs remain.
+                assert_eq!(found.len(), 4);
+                assert_eq!(found[0].published, Some(date(2026, 8, 10)));
+                assert_eq!(found[1].published, Some(date(2026, 7, 13)));
+                assert_eq!(found[2].published, Some(date(2026, 6, 8)));
+                // Undated sorts last, however recently it was written.
+                assert_eq!(found[3].published, None);
+            },
+        );
     }
 
     #[test]
     fn a_missing_directory_is_empty_not_an_error() {
-        temp_env(DATA_DIR_ENV, Some("/nonexistent/diurn/xyz"), || {
+        temp_env(&[(DATA_DIR_ENV, Some("/nonexistent/diurn/xyz"))], || {
             assert!(available().is_empty());
         });
     }
@@ -309,7 +435,7 @@ mod tests {
     /// The first thing a new user reads must tell them what to do.
     #[test]
     fn the_empty_state_message_is_actionable() {
-        temp_env(DATA_DIR_ENV, Some("/nonexistent/diurn/xyz"), || {
+        temp_env(&[(DATA_DIR_ENV, Some("/nonexistent/diurn/xyz"))], || {
             let msg = no_registry_available().to_string();
             assert!(msg.contains("diurn mic fetch"));
             assert!(msg.contains("--path"));
@@ -317,23 +443,35 @@ mod tests {
         });
     }
 
-    /// Environment variables are process-global, so these tests must not run
-    /// concurrently with each other. A mutex is cheaper than serialising the
-    /// whole suite.
-    fn temp_env(key: &str, value: Option<&str>, f: impl FnOnce()) {
+    /// Set several environment variables for the duration of a closure.
+    ///
+    /// Environment is process-global, so these tests must not interleave. Takes
+    /// every variable at once rather than supporting nested calls: the lock is
+    /// a plain `Mutex`, so a nested acquisition would deadlock rather than fail.
+    fn temp_env(vars: &[(&str, Option<&str>)], f: impl FnOnce()) {
         use std::sync::Mutex;
         static LOCK: Mutex<()> = Mutex::new(());
         let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-        let previous = std::env::var_os(key);
-        match value {
-            Some(v) => std::env::set_var(key, v),
-            None => std::env::remove_var(key),
+        let previous: Vec<(String, Option<std::ffi::OsString>)> = vars
+            .iter()
+            .map(|(k, _)| (k.to_string(), std::env::var_os(k)))
+            .collect();
+
+        for (k, v) in vars {
+            match v {
+                Some(v) => std::env::set_var(k, v),
+                None => std::env::remove_var(k),
+            }
         }
+
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-        match previous {
-            Some(v) => std::env::set_var(key, v),
-            None => std::env::remove_var(key),
+
+        for (k, v) in previous {
+            match v {
+                Some(v) => std::env::set_var(&k, v),
+                None => std::env::remove_var(&k),
+            }
         }
         if let Err(e) = result {
             std::panic::resume_unwind(e);
