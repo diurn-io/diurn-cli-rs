@@ -31,7 +31,7 @@ path = "src/main.rs"
 # version, so diurn-mic has to reach crates.io first and this line become a
 # version requirement. CI deliberately has no `package` job until then, since
 # it could only ever fail.
-diurn-mic = { git = "https://github.com/diurn-io/diurn-mic-rs", rev = "b9760fda5d12ce281fc7ebd38425a0bad677756d" }
+diurn-mic = { git = "https://github.com/diurn-io/diurn-mic-rs", rev = "a2ccae8d05466f9e7e65ec34323d7b5eb2b2c37e" }
 
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive", "wrap_help"] }

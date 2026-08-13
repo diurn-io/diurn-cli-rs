@@ -230,6 +230,7 @@ dependencies = [
 [[package]]
 name = "diurn-mic"
 version = "0.1.0"
+source = "git+https://github.com/diurn-io/diurn-mic-rs?rev=a2ccae8d05466f9e7e65ec34323d7b5eb2b2c37e#a2ccae8d05466f9e7e65ec34323d7b5eb2b2c37e"
 dependencies = [
  "csv",
  "encoding_rs",
