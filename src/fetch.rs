@@ -101,7 +101,9 @@ pub fn run(
 }
 
 pub fn filename(published: Date) -> String {
-    format!("ISO10383_MIC_{published}.csv")
+    // The shared convention, so what this writes is exactly what
+    // `diurn_mic::classify_filename` reads back — including in `diurn-ops`.
+    diurn_mic::filename_for(published)
 }
 
 fn today() -> Result<Date> {

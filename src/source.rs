@@ -22,94 +22,20 @@ pub const ISO_URL: &str =
 /// an air-gapped site point at an internal mirror.
 pub const URL_ENV: &str = "DIURN_MIC_URL";
 
-/// Overrides where fetched registries are kept and looked for.
-pub const DATA_DIR_ENV: &str = "DIURN_DATA_DIR";
-
 /// Where `mic fetch` should download from.
 pub fn fetch_url() -> String {
     std::env::var(URL_ENV).unwrap_or_else(|_| ISO_URL.to_string())
 }
 
-/// Where fetched registries live, and why.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DataDir {
-    pub path: PathBuf,
-    /// Set when an environment variable was deliberately not honoured, so the
-    /// choice can be explained rather than looking arbitrary.
-    pub note: Option<String>,
-}
-
-/// Whether a path lies inside a snap's private per-revision tree.
+/// Where fetched registries live, and the environment variable that overrides
+/// it — both from `diurn-mic`.
 ///
-/// Snap user data lives at `~/snap/<app>/<revision>/`, and several snaps — VS
-/// Code among them — export `XDG_DATA_HOME` pointing there and leak it into any
-/// terminal they spawn. The revision number is the problem: it changes when
-/// *that* application updates, so anything stored under it silently disappears
-/// on an unrelated upgrade.
-fn is_snap_private(p: &Path) -> bool {
-    p.components().any(|c| c.as_os_str() == "snap")
-}
-
-/// Where fetched registries live.
-///
-/// A *data* directory rather than a cache directory, deliberately: a pinned
-/// vintage is the evidence for what was served on a given day, and caches are
-/// something the operating system is entitled to delete.
-///
-/// Follows each platform's convention, and `DIURN_DATA_DIR` overrides all of it.
-pub fn data_dir() -> Result<DataDir> {
-    let plain = |path: PathBuf| DataDir { path, note: None };
-
-    if let Ok(dir) = std::env::var(DATA_DIR_ENV) {
-        if !dir.is_empty() {
-            return Ok(plain(PathBuf::from(dir)));
-        }
-    }
-
-    // Under real snap confinement, HOME is redirected into the snap's own tree
-    // and SNAP_REAL_HOME holds the actual one.
-    let home = std::env::var_os("SNAP_REAL_HOME")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from);
-
-    if cfg!(target_os = "windows") {
-        if let Some(appdata) = std::env::var_os("APPDATA") {
-            return Ok(plain(PathBuf::from(appdata).join("diurn")));
-        }
-    } else if cfg!(target_os = "macos") {
-        if let Some(h) = home {
-            return Ok(plain(h.join("Library/Application Support/diurn")));
-        }
-    } else {
-        let mut note = None;
-        if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
-            let xdg = PathBuf::from(xdg);
-            if xdg.is_absolute() {
-                if !is_snap_private(&xdg) {
-                    return Ok(plain(xdg.join("diurn")));
-                }
-                // Honouring this would put the registry under a path containing
-                // a snap revision, and lose it on that app's next update.
-                note = Some(format!(
-                    "ignoring XDG_DATA_HOME={} — it points inside a snap's \
-                     per-revision directory, which would not survive that \
-                     application updating. Set {DATA_DIR_ENV} to override.",
-                    xdg.display()
-                ));
-            }
-        }
-        if let Some(h) = home {
-            return Ok(DataDir {
-                path: h.join(".local/share/diurn"),
-                note,
-            });
-        }
-    }
-
-    Err(anyhow!(
-        "could not determine a data directory; set {DATA_DIR_ENV}"
-    ))
-}
+/// This used to be implemented here: ~80 lines of platform rules including the
+/// snap-confinement workaround. `diurn-ops mic-ingest` needs the same answer to
+/// pick up what `mic fetch` just wrote, and a second implementation of "where is
+/// it" is a second thing to be wrong on somebody's machine. It moved to the
+/// crate both tools already depend on.
+pub use diurn_mic::data_dir;
 
 /// Parse `YYYY-MM-DD`.
 pub fn parse_date(s: &str) -> Result<Date> {
@@ -117,13 +43,24 @@ pub fn parse_date(s: &str) -> Result<Date> {
         .with_context(|| format!("expected a date as YYYY-MM-DD, got {s:?}"))
 }
 
-/// Recover the publication date from a filename like
-/// `ISO10383_MIC_2026-08-10.csv`, which is the convention `mic fetch` writes
-/// and `diurn-ops mic ingest` expects.
+/// The publication date a filename carries, accepting names this CLI did not
+/// write.
+///
+/// [`diurn_mic::published_from_filename`] reads the convention `mic fetch`
+/// writes: exactly `ISO10383_MIC_<date>.csv`. This additionally accepts a
+/// trailing `_<date>` on any file, because `--path` takes a registry the user
+/// supplied and may have renamed, and guessing right beats making them pass
+/// `--published`.
+///
+/// **That leniency is a CLI affordance, not the convention.** Anything writing a
+/// file for another tool to find must use [`diurn_mic::filename_for`], and
+/// anything deciding whether a file *is* a vintage should ask `diurn-mic`.
 pub fn published_from_filename(path: &Path) -> Option<Date> {
+    if let Some(published) = diurn_mic::published_from_filename(path) {
+        return Some(published);
+    }
     let stem = path.file_stem()?.to_str()?;
-    let tail = stem.rsplit('_').next()?;
-    tail.parse::<Date>().ok()
+    stem.rsplit('_').next()?.parse::<Date>().ok()
 }
 
 /// A registry file on disk, with whatever we can tell about it from outside.
@@ -244,6 +181,7 @@ pub fn second_monday_of_month(date: Date) -> Result<Date> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use diurn_mic::DATA_DIR_ENV;
     use jiff::civil::date;
 
     #[test]
@@ -313,17 +251,6 @@ mod tests {
             assert_ne!(d.path, PathBuf::from(""));
             assert!(d.path.ends_with("diurn"), "{d:?}");
         });
-    }
-
-    #[test]
-    fn snap_private_paths_are_recognised() {
-        assert!(is_snap_private(Path::new(
-            "/home/ariza/snap/code/253/.local/share"
-        )));
-        assert!(is_snap_private(Path::new("/var/snap/foo/current")));
-        assert!(!is_snap_private(Path::new("/home/ariza/.local/share")));
-        // "snapshot" is not "snap".
-        assert!(!is_snap_private(Path::new("/home/ariza/snapshots/data")));
     }
 
     /// A legitimate XDG_DATA_HOME is honoured.
