@@ -288,8 +288,12 @@ mod tests {
             ],
             || {
                 let d = data_dir().unwrap();
+                // Checked here rather than by calling `diurn-mic`'s own
+                // predicate: that is an implementation detail of the rule, and a
+                // test that reuses it would pass even if the rule inverted. This
+                // asks the question the user cares about.
                 assert!(
-                    !is_snap_private(&d.path),
+                    !d.path.components().any(|c| c.as_os_str() == "snap"),
                     "must not land inside the snap tree: {d:?}"
                 );
                 assert!(d.path.ends_with(".local/share/diurn"), "{d:?}");
