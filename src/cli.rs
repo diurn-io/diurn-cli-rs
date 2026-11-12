@@ -42,22 +42,27 @@ pub enum Command {
     )]
     Mic(MicCommand),
 
-    /// Market calendars and trading hours. Requires an API key.
+    /// Market calendars and trading hours, from the Diurn API. Requires an API key.
     #[command(
-        long_about = "Market calendars and trading hours.\n\n\
-            Calendar commands require DIURN_API_KEY — get one at https://diurn.io\n\n\
-            The namespace is reserved but not yet implemented. When it lands it \
-            will be a thin wrapper over the `diurn` client crate, so the CLI \
-            exercises the same library everyone else integrates against.",
-        after_help = "PLANNED COMMANDS:\n  \
-            diurn cal status <id>       open or closed at an instant\n  \
-            diurn cal next-close <id>   next session close\n  \
-            diurn cal next-open <id>    next session open\n  \
-            diurn cal sessions <id>     sessions over a date range\n  \
-            diurn cal coverage          which calendars are verified how far\n\n\
+        subcommand,
+        long_about = "Market calendars and trading hours, from the Diurn API.\n\n\
+            Calendar commands require DIURN_API_KEY: a free key is at \
+            https://diurn.io/signin/. Every command is keyed by MIC and is a \
+            thin wrapper over the `diurn` client crate, so it answers exactly \
+            what a program using the crate would.\n\n\
+            Dates are YYYY-MM-DD; instants are RFC 3339 with an offset or Z \
+            (2026-11-27T15:00:00Z), or `now`. A day Diurn cannot answer is \
+            never reported as open or closed: the command exits 5.",
+        after_help = "EXIT CODES:\n  \
+            0  answered\n  \
+            1  usage: a malformed argument or request\n  \
+            3  the API could not be reached\n  \
+            4  the API refused: no or inactive key, not in your plan, outside \
+            its dates, a MIC cap, the rate, or an unknown MIC\n  \
+            5  indeterminate: Diurn cannot say whether the market trades then\n\n\
             MIC commands need no key and work offline: try `diurn mic --help`."
     )]
-    Cal(CalArgs),
+    Cal(CalCommand),
 }
 
 #[derive(Debug, Subcommand)]
@@ -178,13 +183,145 @@ pub struct VintageArgs {
     pub published: Option<String>,
 }
 
+#[derive(Debug, Subcommand)]
+pub enum CalCommand {
+    /// Whether venues are trading at an instant, and their next open and close.
+    Status {
+        /// One or more MICs, e.g. XNYS XLON.
+        #[arg(required = true, value_name = "MIC")]
+        mics: Vec<String>,
+        /// The instant to ask about; now by default.
+        #[arg(long, value_name = "INSTANT")]
+        at: Option<String>,
+        #[command(flatten)]
+        as_of: AsOfArg,
+    },
+
+    /// The next instant a venue starts trading.
+    NextOpen {
+        /// The MIC, e.g. XNYS.
+        mic: String,
+        /// Look after this instant; now by default.
+        #[arg(long, value_name = "INSTANT")]
+        after: Option<String>,
+        #[command(flatten)]
+        as_of: AsOfArg,
+    },
+
+    /// The next instant a venue stops trading.
+    NextClose {
+        /// The MIC, e.g. XNYS.
+        mic: String,
+        /// Look after this instant; now by default.
+        #[arg(long, value_name = "INSTANT")]
+        after: Option<String>,
+        #[command(flatten)]
+        as_of: AsOfArg,
+    },
+
+    /// Every day in a range for a venue, with its sessions.
+    Sessions {
+        /// The MIC, e.g. XNYS.
+        mic: String,
+        #[command(flatten)]
+        range: RangeArgs,
+        /// Only days of these kinds, e.g. holiday,early_close.
+        #[arg(long, value_delimiter = ',', value_name = "KIND")]
+        kinds: Vec<String>,
+        #[command(flatten)]
+        as_of: AsOfArg,
+    },
+
+    /// One day for a venue, with the evidence behind it.
+    Day {
+        /// The MIC, e.g. XNYS.
+        mic: String,
+        /// The date, YYYY-MM-DD.
+        date: String,
+        #[command(flatten)]
+        as_of: AsOfArg,
+    },
+
+    /// The nth trading day after a date: for one venue, or the next date
+    /// several trade (all of them, or any one with --mode any).
+    Next(StepArgs),
+
+    /// The nth trading day before a date, as `next` counts forward.
+    Previous(StepArgs),
+
+    /// Trading days in a range, inclusive.
+    Count {
+        /// The MIC, e.g. XNYS.
+        mic: String,
+        #[command(flatten)]
+        range: RangeArgs,
+        #[command(flatten)]
+        as_of: AsOfArg,
+    },
+
+    /// Holidays and irregular days across venues, one row each.
+    Exceptions {
+        /// One or more MICs, e.g. XNYS XLON XTKS.
+        #[arg(required = true, value_name = "MIC")]
+        mics: Vec<String>,
+        #[command(flatten)]
+        range: RangeArgs,
+        /// Only these kinds; holiday, early_close, open_for_some and unknown
+        /// by default.
+        #[arg(long, value_delimiter = ',', value_name = "KIND")]
+        kinds: Vec<String>,
+        #[command(flatten)]
+        as_of: AsOfArg,
+    },
+
+    /// Your plan, and its meters: unique MICs, dates and rate. Never metered.
+    Usage,
+}
+
+/// A date range. Both ends are inclusive.
 #[derive(Debug, Args)]
-pub struct CalArgs {
-    /// Swallows whatever follows so that `diurn cal status XNYS` reports the
-    /// missing key rather than an unknown-subcommand error. Hidden: it is a
-    /// placeholder, not an argument anyone should be told about.
-    #[arg(hide = true, trailing_var_arg = true, allow_hyphen_values = true)]
-    pub rest: Vec<String>,
+pub struct RangeArgs {
+    /// The first date, YYYY-MM-DD; today (UTC) by default.
+    #[arg(long, value_name = "DATE")]
+    pub from: Option<String>,
+    /// The last date, YYYY-MM-DD; 30 days after --from by default.
+    #[arg(long, value_name = "DATE")]
+    pub to: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct StepArgs {
+    /// One or more MICs. With several, the date they trade together.
+    #[arg(required = true, value_name = "MIC")]
+    pub mics: Vec<String>,
+    /// Start from this date, YYYY-MM-DD; today (UTC) by default.
+    #[arg(long, value_name = "DATE")]
+    pub from: Option<String>,
+    /// Trading days to move.
+    #[arg(short, long, default_value_t = 1)]
+    pub n: u32,
+    /// Count the starting date itself when it trades.
+    #[arg(long)]
+    pub inclusive: bool,
+    /// With several MICs: every venue trading (all) or at least one (any).
+    #[arg(long, value_enum, default_value_t = Mode::All)]
+    pub mode: Mode,
+    #[command(flatten)]
+    pub as_of: AsOfArg,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum Mode {
+    All,
+    Any,
+}
+
+/// Answer as Diurn would have at a past instant (Enterprise).
+#[derive(Debug, Args)]
+pub struct AsOfArg {
+    /// Answer from the dataset Diurn was serving at this instant (Enterprise).
+    #[arg(long, value_name = "INSTANT")]
+    pub as_of: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]

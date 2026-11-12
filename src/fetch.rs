@@ -154,8 +154,14 @@ fn resolve_published(
 }
 
 fn download(url: &str) -> Result<Vec<u8>> {
-    let mut resp = ureq::get(url)
-        .call()
+    use std::io::Read;
+
+    let resp = reqwest::blocking::Client::builder()
+        .user_agent(concat!("diurn-cli/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .context("could not start an HTTP client")?
+        .get(url)
+        .send()
         .with_context(|| format!("request to {url} failed"))?;
 
     let status = resp.status();
@@ -163,14 +169,16 @@ fn download(url: &str) -> Result<Vec<u8>> {
         anyhow::bail!("{url} returned HTTP {status}");
     }
 
-    let body = resp
-        .body_mut()
-        .with_config()
-        // The registry is around 600 KB; the ceiling is generous but bounded,
-        // so a misrouted request cannot fill the disk.
-        .limit(32 * 1024 * 1024)
-        .read_to_vec()
+    // The registry is around 600 KB; the ceiling is generous but bounded, so
+    // a misrouted request cannot fill the disk.
+    const LIMIT: u64 = 32 * 1024 * 1024;
+    let mut body = Vec::new();
+    resp.take(LIMIT + 1)
+        .read_to_end(&mut body)
         .context("could not read the response body")?;
+    if body.len() as u64 > LIMIT {
+        anyhow::bail!("{url} returned more than {LIMIT} bytes");
+    }
 
     if body.is_empty() {
         anyhow::bail!("{url} returned an empty body");

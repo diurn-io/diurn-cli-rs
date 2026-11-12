@@ -414,36 +414,6 @@ fn diff_cmd(w: &mut impl Write, ctx: &Ctx, old: &Path, new: &Path) -> Result<i32
     Ok(if errors { EXIT_LOAD_ERRORS } else { EXIT_OK })
 }
 
-/// `diurn cal` — reserved, not implemented.
-///
-/// The free half of the CLI advertising the paid half is the funnel; the shape
-/// exists from the start so it does not have to be retrofitted.
-pub fn cal(quiet: bool) -> Result<i32> {
-    let _ = quiet;
-    let mut t = Table::new(&["COMMAND", "WHAT IT WILL DO"]);
-    for (c, d) in [
-        ("diurn cal status <id>", "open or closed at an instant"),
-        ("diurn cal next-close <id>", "next session close"),
-        ("diurn cal next-open <id>", "next session open"),
-        ("diurn cal sessions <id>", "sessions over a date range"),
-        ("diurn cal coverage", "which calendars are verified how far"),
-    ] {
-        t.push(vec![c.to_string(), d.to_string()]);
-    }
-
-    let mut err = std::io::stderr().lock();
-    writeln!(
-        err,
-        "calendar commands require DIURN_API_KEY — get one at https://diurn.io\n"
-    )?;
-    t.write(&mut err)?;
-    writeln!(
-        err,
-        "\nMIC commands need no key and work offline: try `diurn mic --help`."
-    )?;
-    Ok(EXIT_USAGE)
-}
-
 /// Used by `mic fetch` to build a registry from freshly downloaded bytes.
 pub fn parse_downloaded(bytes: &[u8], opts: LoadOptions) -> Result<diurn_mic::LoadOutcome> {
     MicRegistry::load_csv(bytes, opts).context("the downloaded file is not an ISO 10383 CSV")

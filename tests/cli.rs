@@ -481,21 +481,21 @@ fn help_shows_no_internal_commands() {
     assert!(help.contains("cal"));
 }
 
-/// The reserved namespace advertises the paid half without pretending to work.
+/// Calendar commands need a key; without one they say where to get it, before
+/// any request (tests/cal.rs covers the commands themselves).
 #[test]
-fn cal_is_reserved_and_says_so() {
-    let o = run(&["cal"]);
-    assert_eq!(code(&o), 1, "cannot do the work, so not a success");
+fn cal_without_a_key_says_where_to_get_one() {
+    let o = Command::new(BIN)
+        .args(["cal", "status", "XNYS"])
+        .env_remove("DIURN_API_KEY")
+        .env_remove("DIURN_API_URL")
+        .output()
+        .expect("failed to run diurn");
+    assert_eq!(code(&o), 4, "the API would refuse, so the CLI does");
     assert!(stderr(&o).contains("DIURN_API_KEY"));
     assert!(stderr(&o).contains("diurn.io"));
     assert!(stdout(&o).is_empty(), "nothing usable on stdout");
 
-    // A plausible future invocation reports the missing key, not a parse error.
-    let o = run(&["cal", "status", "US-EQUITY"]);
-    assert_eq!(code(&o), 1);
-    assert!(stderr(&o).contains("DIURN_API_KEY"));
-
-    // ...and --help documents it too.
     let help = stdout(&run(&["cal", "--help"]));
     assert!(help.contains("DIURN_API_KEY"));
     assert!(help.contains("diurn.io"));
@@ -537,9 +537,11 @@ fn everything_except_fetch_works_offline() {
     }
 }
 
-/// The offline promise is structural: exactly one module may reach the network.
+/// The offline promise is structural: two modules reach the network, and only
+/// they. `fetch.rs` downloads the registry; `cal.rs` asks the API, and only
+/// through the `diurn` client crate (SPEC 2.1), never with HTTP of its own.
 #[test]
-fn only_fetch_links_the_network() {
+fn only_fetch_and_cal_reach_the_network() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for entry in std::fs::read_dir(&src).unwrap() {
         let path = entry.unwrap().path();
@@ -548,13 +550,18 @@ fn only_fetch_links_the_network() {
         }
         let text = std::fs::read_to_string(&path).unwrap();
         let name = path.file_name().unwrap().to_str().unwrap().to_string();
-        if name == "fetch.rs" {
-            assert!(text.contains("ureq::"), "fetch.rs should be the caller");
-        } else {
-            assert!(
-                !text.contains("ureq::"),
-                "{name} reaches the network; only fetch.rs may"
-            );
+        let http = text.contains("reqwest::");
+        let client = text.contains("diurn::blocking");
+        match name.as_str() {
+            "fetch.rs" => assert!(http, "fetch.rs should be the registry's caller"),
+            "cal.rs" => {
+                assert!(client, "cal.rs should use the diurn client crate");
+                assert!(!http, "cal.rs must not make HTTP requests of its own");
+            }
+            _ => assert!(
+                !http && !client,
+                "{name} reaches the network; only fetch.rs and cal.rs may"
+            ),
         }
     }
 }

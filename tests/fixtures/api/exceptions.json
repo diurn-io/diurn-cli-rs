@@ -1,0 +1,86 @@
+{
+    "from": "2026-12-20",
+    "to": "2027-01-05",
+    "days": [
+        {
+            "mic": "XLON",
+            "date": "2026-12-24",
+            "kind": "early_close",
+            "reason": "Christmas Eve",
+            "sessions": [
+                {
+                    "name": "regular",
+                    "open": "2026-12-24T08:00:00+00:00[Europe/London]",
+                    "close": "2026-12-24T12:35:00+00:00[Europe/London]",
+                    "verification": "verified"
+                }
+            ],
+            "verification": "verified"
+        },
+        {
+            "mic": "XNYS",
+            "date": "2026-12-24",
+            "kind": "early_close",
+            "reason": "Christmas Eve",
+            "sessions": [
+                {
+                    "name": "regular",
+                    "open": "2026-12-24T09:30:00-05:00[America/New_York]",
+                    "close": "2026-12-24T13:00:00-05:00[America/New_York]",
+                    "verification": "verified"
+                }
+            ],
+            "verification": "verified"
+        },
+        {
+            "mic": "XLON",
+            "date": "2026-12-25",
+            "kind": "holiday",
+            "reason": "Christmas Day",
+            "verification": "verified"
+        },
+        {
+            "mic": "XNYS",
+            "date": "2026-12-25",
+            "kind": "holiday",
+            "reason": "Christmas Day",
+            "verification": "verified"
+        },
+        {
+            "mic": "XLON",
+            "date": "2026-12-28",
+            "kind": "holiday",
+            "reason": "Boxing Day",
+            "verification": "verified"
+        },
+        {
+            "mic": "XLON",
+            "date": "2026-12-31",
+            "kind": "early_close",
+            "reason": "New Year's Eve",
+            "sessions": [
+                {
+                    "name": "regular",
+                    "open": "2026-12-31T08:00:00+00:00[Europe/London]",
+                    "close": "2026-12-31T12:35:00+00:00[Europe/London]",
+                    "verification": "verified"
+                }
+            ],
+            "verification": "verified"
+        },
+        {
+            "mic": "XLON",
+            "date": "2027-01-01",
+            "kind": "holiday",
+            "reason": "New Year's Day",
+            "verification": "verified"
+        },
+        {
+            "mic": "XNYS",
+            "date": "2027-01-01",
+            "kind": "holiday",
+            "reason": "New Year's Day",
+            "verification": "verified"
+        }
+    ]
+}

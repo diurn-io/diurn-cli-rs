@@ -2,9 +2,10 @@
 //!
 //! MIC subcommands work entirely offline against a registry file: the newest in
 //! the data directory, or one named with `--path`. Nothing is bundled with the
-//! binary. `mic fetch` is the sole exception and the only place a network
-//! dependency is linked in at all.
+//! binary. `mic fetch` downloads the registry. `cal` asks the Diurn API,
+//! through the `diurn` client crate and nothing else (SPEC 2.1).
 
+mod cal;
 mod cli;
 mod commands;
 mod fetch;
@@ -42,7 +43,7 @@ fn main() {
 
     let result = match cli.command {
         Command::Mic(cmd) => commands::run(cmd, &ctx),
-        Command::Cal(_) => commands::cal(ctx.quiet),
+        Command::Cal(cmd) => cal::run(cmd, &ctx),
     };
 
     match result {

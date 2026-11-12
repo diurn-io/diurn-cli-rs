@@ -1,0 +1,73 @@
+{
+    "mic": "XTKS",
+    "days": [
+        {
+            "date": "2026-11-01",
+            "kind": "weekend",
+            "verification": "inferreddefinitional"
+        },
+        {
+            "date": "2026-11-02",
+            "kind": "open",
+            "sessions": [
+                {
+                    "name": "morning",
+                    "open": "2026-11-02T09:00:00+09:00[Asia/Tokyo]",
+                    "close": "2026-11-02T11:30:00+09:00[Asia/Tokyo]",
+                    "verification": "corroborated"
+                },
+                {
+                    "name": "afternoon",
+                    "open": "2026-11-02T12:30:00+09:00[Asia/Tokyo]",
+                    "close": "2026-11-02T15:30:00+09:00[Asia/Tokyo]",
+                    "verification": "corroborated"
+                }
+            ],
+            "verification": "inferreddefinitional"
+        },
+        {
+            "date": "2026-11-03",
+            "kind": "holiday",
+            "reason": "Culture Day",
+            "verification": "corroborated"
+        },
+        {
+            "date": "2026-11-04",
+            "kind": "open",
+            "sessions": [
+                {
+                    "name": "morning",
+                    "open": "2026-11-04T09:00:00+09:00[Asia/Tokyo]",
+                    "close": "2026-11-04T11:30:00+09:00[Asia/Tokyo]",
+                    "verification": "corroborated"
+                },
+                {
+                    "name": "afternoon",
+                    "open": "2026-11-04T12:30:00+09:00[Asia/Tokyo]",
+                    "close": "2026-11-04T15:30:00+09:00[Asia/Tokyo]",
+                    "verification": "corroborated"
+                }
+            ],
+            "verification": "inferreddefinitional"
+        },
+        {
+            "date": "2026-11-05",
+            "kind": "open",
+            "sessions": [
+                {
+                    "name": "morning",
+                    "open": "2026-11-05T09:00:00+09:00[Asia/Tokyo]",
+                    "close": "2026-11-05T11:30:00+09:00[Asia/Tokyo]",
+                    "verification": "corroborated"
+                },
+                {
+                    "name": "afternoon",
+                    "open": "2026-11-05T12:30:00+09:00[Asia/Tokyo]",
+                    "close": "2026-11-05T15:30:00+09:00[Asia/Tokyo]",
+                    "verification": "corroborated"
+                }
+            ],
+            "verification": "inferreddefinitional"
+        }
+    ]
+}

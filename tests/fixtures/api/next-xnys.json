@@ -1,0 +1,14 @@
+{
+    "mic": "XNYS",
+    "from": "2026-11-25",
+    "n": 1,
+    "date": "2026-11-27",
+    "kind": "early_close",
+    "skipped": [
+        {
+            "date": "2026-11-26",
+            "kind": "holiday",
+            "reason": "Thanksgiving Day"
+        }
+    ]
+}

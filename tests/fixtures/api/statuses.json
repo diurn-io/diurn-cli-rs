@@ -1,0 +1,49 @@
+{
+    "at": "2026-11-27T17:00:00Z",
+    "venues": {
+        "XLON": {
+            "state": "closed",
+            "day": {
+                "date": "2026-11-27",
+                "kind": "open",
+                "sessions": [
+                    {
+                        "name": "regular",
+                        "open": "2026-11-27T08:00:00+00:00[Europe/London]",
+                        "close": "2026-11-27T16:35:00+00:00[Europe/London]",
+                        "verification": "verified"
+                    }
+                ],
+                "verification": "inferreddefinitional"
+            },
+            "next_open": "2026-11-30T08:00:00+00:00[Europe/London]",
+            "next_close": "2026-11-30T16:35:00+00:00[Europe/London]"
+        },
+        "XNYS": {
+            "state": "running",
+            "day": {
+                "date": "2026-11-27",
+                "kind": "early_close",
+                "reason": "Day after Thanksgiving",
+                "sessions": [
+                    {
+                        "name": "regular",
+                        "open": "2026-11-27T09:30:00-05:00[America/New_York]",
+                        "close": "2026-11-27T13:00:00-05:00[America/New_York]",
+                        "verification": "verified"
+                    }
+                ],
+                "verification": "verified"
+            },
+            "running": {
+                "trade_date": "2026-11-27",
+                "name": "regular",
+                "open": "2026-11-27T09:30:00-05:00[America/New_York]",
+                "close": "2026-11-27T13:00:00-05:00[America/New_York]",
+                "verification": "verified"
+            },
+            "next_open": "2026-11-30T09:30:00-05:00[America/New_York]",
+            "next_close": "2026-11-27T13:00:00-05:00[America/New_York]"
+        }
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "date": "2026-11-26",
+    "kind": "holiday",
+    "reason": "Thanksgiving Day",
+    "verification": "verified",
+    "provenance": {
+        "source": "https://www.nyse.com/markets/hours-calendars",
+        "retrieved": "2026-08-20"
+    }
+}

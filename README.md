@@ -1,7 +1,7 @@
 # diurn-cli-rs
 
-The `diurn` command: ISO 10383 Market Identifier Codes and, later, market
-calendars. Publishes as the crate
+The `diurn` command: ISO 10383 Market Identifier Codes, offline, and market
+calendars and trading hours from the [Diurn API](https://diurn.io). Publishes as the crate
 [`diurn-cli`](https://crates.io/crates/diurn-cli) and installs the binary
 
 
@@ -90,6 +90,58 @@ XCHI
 ...
 ```
 
+## Market calendars
+
+`diurn cal` asks the Diurn API, through the
+[`diurn`](https://crates.io/crates/diurn) client crate: every command is one of
+its operations, and `--format json` prints its model unchanged. It needs a key,
+free at <https://diurn.io/signin/>, in `DIURN_API_KEY`.
+
+```
+diurn cal status XNYS [XLON ...] [--at INSTANT]   trading now (or then), next open and close
+diurn cal next-open XNYS [--after INSTANT]        the next instant it starts trading
+diurn cal next-close XNYS [--after INSTANT]       the next instant it stops
+diurn cal sessions XNYS --from DATE --to DATE     every day in a range, with its hours
+diurn cal day XNYS DATE                           one day, with the evidence behind it
+diurn cal next XNYS [XLON ...] [--from DATE] [-n N]       the nth trading day after
+diurn cal previous XNYS [XLON ...] [--from DATE] [-n N]   the nth trading day before
+diurn cal count XNYS --from DATE --to DATE        trading days in a range
+diurn cal exceptions XNYS [XLON ...] --from DATE --to DATE   holidays and irregular days
+diurn cal usage                                   your plan and what is left of it
+```
+
+Dates are `YYYY-MM-DD`; instants are RFC 3339 with an offset or `Z`, or `now`.
+Times print in the venue's own clock:
+
+```console
+$ diurn cal status XNYS --at 2026-11-27T17:00:00Z
+MIC   STATE    DAY          SESSION          NEXT OPEN             NEXT CLOSE            REASON
+----  -------  -----------  ---------------  --------------------  --------------------  ----------------------
+XNYS  running  early_close  09:30-13:00 EST  2026-11-30 09:30 EST  2026-11-27 13:00 EST  Day after Thanksgiving
+
+$ diurn cal next XNYS XLON --from 2026-12-24
+XLON XNYS  2026-12-29  (1 date after 2026-12-24 on which all trade)
+  skipped 2026-12-25: XLON Christmas Day, XNYS Christmas Day
+  skipped 2026-12-28: XLON Boxing Day
+
+$ diurn cal day XNYS 2026-11-26
+MIC           XNYS
+Date          2026-11-26 (Thursday)
+Kind          holiday
+Reason        Thanksgiving Day
+Verification  verified
+Source        https://www.nyse.com/markets/hours-calendars
+Retrieved     2026-08-20
+```
+
+With several MICs, `next` and `previous` find the date they trade together
+(`--mode any` for the first date any one does). What your plan has left goes to
+stderr after each answer (`--quiet` silences it). **A day Diurn cannot answer is
+never reported as open or closed**: the command says so and exits 5.
+
+`DIURN_API_URL` points the commands at another server, such as a local
+`diurn-api`, which needs no key.
+
 ## Pending records
 
 ISO publishes the registry on the second Monday of each month, and the changes
@@ -129,10 +181,14 @@ refused port when testing the failure path.
 | 0 | Success |
 | 1 | Usage error, or the thing you asked for does not exist |
 | 2 | The file loaded, but contained records that could not be used |
-| 3 | Network failure during `fetch` |
+| 3 | Network failure: `fetch`, or the Diurn API could not be reached |
+| 4 | The Diurn API refused: no or inactive key, not in your plan, dates outside it, a MIC cap, the rate, or an unknown MIC |
+| 5 | Indeterminate: Diurn cannot say whether the market trades then |
 
 Exit 2 is about the data, not the command: the load still produced a usable
-registry, and the unusable rows are reported.
+registry, and the unusable rows are reported. Exit 5 is likewise an answer, not
+a failure: a count that includes unknown days is printed as a lower bound and
+exits 5.
 
 ## Data source and attribution
 

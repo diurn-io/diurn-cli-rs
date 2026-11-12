@@ -31,8 +31,11 @@ first; there is no longer a rev to pin.
 Every `mic` subcommand except `fetch` works with no network, and that is
 enforced rather than assumed:
 
-- `only_fetch_links_the_network` asserts `ureq::` appears in `fetch.rs` and
-  nowhere else in `src/`.
+- `only_fetch_and_cal_reach_the_network` asserts that `fetch.rs` (the
+  registry download, on `reqwest`) and `cal.rs` (the calendar commands, through
+  the `diurn` client crate's blocking client) are the only modules in `src/`
+  that reach the network, and that `cal.rs` makes no HTTP request of its own:
+  it is a thin wrapper over the client crate (SPEC 2.1).
 - `everything_except_fetch_works_offline` runs each command with
   `DIURN_MIC_URL` pointed at a refused port. `network_failure_is_three` uses the
   same address to confirm `fetch` really does fail against it, so that test is
@@ -75,3 +78,22 @@ Output formats are a compatibility surface. `--format json` field names are
 hand-written in `src/render.rs` rather than derived from library types, so that
 renaming a field in `diurn-mic` cannot silently change what scripts parse. Treat
 a change there as a breaking change.
+
+## The calendar commands
+
+`diurn cal` is a thin wrapper over the `diurn` client crate: no HTTP and no
+request types of its own, so the CLI exercises the library everyone else
+integrates against. `tests/cal.rs` runs the binary against a fake API built on
+`std::net`, answering with responses recorded from a local `diurn-api`
+(`tests/fixtures/api/`); rerecord them with `curl` against
+`cargo run -p diurn-api -- --bind 127.0.0.1:8099` in diurn-platform when the
+wire format changes.
+
+The `diurn` crate's dependencies include ICU crates whose newest versions need
+Rust 1.88, so `Cargo.lock` pins them to the newest that build on this crate's
+`rust-version` (1.85). After a `cargo update`, keep it that way:
+
+```sh
+CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback cargo update
+cargo +1.85.0 check --locked --all-targets
+```

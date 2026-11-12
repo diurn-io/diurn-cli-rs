@@ -1,0 +1,41 @@
+{
+    "mics": [
+        "XLON",
+        "XNYS"
+    ],
+    "mode": "all",
+    "from": "2026-12-24",
+    "n": 1,
+    "date": "2026-12-29",
+    "venues": {
+        "XLON": "open",
+        "XNYS": "open"
+    },
+    "skipped": [
+        {
+            "date": "2026-12-25",
+            "closed": {
+                "XLON": {
+                    "date": "2026-12-25",
+                    "kind": "holiday",
+                    "reason": "Christmas Day"
+                },
+                "XNYS": {
+                    "date": "2026-12-25",
+                    "kind": "holiday",
+                    "reason": "Christmas Day"
+                }
+            }
+        },
+        {
+            "date": "2026-12-28",
+            "closed": {
+                "XLON": {
+                    "date": "2026-12-28",
+                    "kind": "holiday",
+                    "reason": "Boxing Day"
+                }
+            }
+        }
+    ]
+}

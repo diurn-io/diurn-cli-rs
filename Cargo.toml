@@ -1,11 +1,11 @@
 [package]
 name = "diurn-cli"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
-# ureq-proto, a normal dependency of ureq, is edition 2024 — so this crate
-# genuinely cannot build on anything older. Unlike diurn-mic, whose MSRV is a
-# promise to library consumers, this is a binary people install; a current
-# toolchain is a reasonable ask.
+# `diurn`, the client crate the calendar commands wrap, is edition 2024 with
+# an MSRV of 1.85, so this crate cannot build on anything older. Unlike
+# diurn-mic, whose MSRV is a promise to library consumers, this is a binary
+# people install; a current toolchain is a reasonable ask.
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 description = "Command-line tool for ISO 10383 Market Identifier Codes and Diurn market calendars"
@@ -32,8 +32,14 @@ csv = "1.4"
 jiff = { version = "0.2", default-features = false, features = ["std", "alloc", "serde", "tz-system"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-# Only `mic fetch` uses this. Everything else works with the network unplugged.
-ureq = "3.4"
+# The calendar commands are a thin wrapper over the `diurn` client crate
+# (SPEC 2.1): no HTTP of their own. Its blocking client, since this is a
+# program without an async runtime.
+diurn = { version = "0.1", features = ["blocking"] }
+# `mic fetch` downloads the registry with the same reqwest the client uses,
+# so the binary carries one HTTP and TLS stack. Every other `mic` command
+# works with the network unplugged.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls"] }
 
 [dev-dependencies]
 tempfile = "3.27"
