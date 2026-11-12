@@ -181,11 +181,17 @@ jobs:
 
           exit_is 0 "success"            -- $D mic get XNYS -q
           exit_is 1 "usage error"        -- $D mic bogus
-          exit_is 1 "cal unimplemented"  -- $D cal
           exit_is 3 "network failure"    -- $D mic fetch
 
-          # The paid namespace advertises itself without pretending to work.
-          stderr_has "cal advertises key" "DIURN_API_KEY" -- $D cal
+          # Calendar commands. The runner has no key: refused (4) before any
+          # request, naming where to get one. With a server named, an
+          # unreachable API is a network failure (3). Bare `diurn cal` shows
+          # its help, as bare `diurn` does.
+          exit_is 4 "cal without a key"  -- $D cal status XNYS
+          stderr_has "cal names the key" "DIURN_API_KEY" -- $D cal status XNYS
+          DIURN_API_URL=http://127.0.0.1:1 DIURN_API_KEY=k \
+            exit_is 3 "cal unreachable"  -- $D cal status XNYS
+          exit_is 0 "cal shows help"     -- $D cal
 
           # A fresh install with no registry explains itself.
           DIURN_DATA_DIR=$(mktemp -d) \
